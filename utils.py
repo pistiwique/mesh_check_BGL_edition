@@ -212,7 +212,6 @@ class MeshCheck:
         object_mode = bpy.context.object.mode
         if object_mode != MeshCheck.mode():
             MeshCheck.set_mode(object_mode)
-            print("updated")
             if object_mode == "EDIT":
                 MeshCheck.reset_mc_objects()
 
