@@ -35,7 +35,7 @@ def enable_depsgraph_handler(self, context):
         MeshCheck.set_mode(context.object.mode)
         MeshCheck.add_callback()
     else:
-        MeshCheck.remove_callback()
+        MeshCheck.reset_mesh_check()
 
 class MeshCheckProperties(PropertyGroup):
 
