@@ -40,7 +40,7 @@ class MeshCheckPreferences(AddonPreferences):
 
     line_width: FloatProperty(
             name="Line Width",
-            default=3.0,
+            default=2.0,
             min=1.0, max=10.0,
             subtype="PIXEL",
             description="Edge width in pixels"

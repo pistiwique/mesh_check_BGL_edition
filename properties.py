@@ -31,11 +31,21 @@ from .utils import MeshCheck
 
 
 def enable_depsgraph_handler(self, context):
-    if MeshCheck.poll(self):
+    if self.display_mesh_check:
         MeshCheck.set_mode(context.object.mode)
         MeshCheck.add_callback()
     else:
-        MeshCheck.reset_mesh_check()
+        MeshCheck.remove_callback()
+
+def mc_object_datas_updater(attr):
+    def updater(self, context):
+        if context.object.mode == "EDIT":
+            if getattr(self, attr):
+                MeshCheck.update_mc_object_datas(attr)
+        return None
+
+    return updater
+
 
 class MeshCheckProperties(PropertyGroup):
 
@@ -49,21 +59,21 @@ class MeshCheckProperties(PropertyGroup):
             name="Non manifold",
             default=False,
             description="Draw non manifold edges",
-            update=enable_depsgraph_handler
+            update=mc_object_datas_updater("non_manifold")
             )
 
     triangles: BoolProperty(
             name="Triangles",
             default=False,
             description="Draw triangles",
-            update=enable_depsgraph_handler
+            update=mc_object_datas_updater("triangles")
             )
 
     ngons: BoolProperty(
             name="Ngons",
             default=False,
             description="Draw ngons",
-            update=enable_depsgraph_handler
+            update=mc_object_datas_updater("ngons")
             )
 
     def split_template(self, layout):
