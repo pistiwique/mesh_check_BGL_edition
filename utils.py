@@ -35,9 +35,9 @@ class MeshCheckObject:
         self._edges = 0
         self._faces = 0
 
-        self._non_manifold = set()
-        self._triangles = set()
-        self._ngons = set()
+        self._non_manifold = set() # storage for edges index
+        self._triangles = set() # storage for faces index
+        self._ngons = set() # storage for faces index
 
         self.init_object()
 
@@ -79,9 +79,6 @@ class MeshCheckObject:
         return any([getattr(self, f"_{data}") != len(getattr(bm, data))
                     for data in datas])
 
-    def get_non_manifold(self):
-        return self._non_manifold
-
     def set_non_manifold(self, bm):
         if bm is not None:
             self._non_manifold.clear()
@@ -96,8 +93,8 @@ class MeshCheckObject:
     def set_triangles(self, bm):
         if bm is not None:
             self._triangles.clear()
-            self._triangles.update(edge.index for face in bm.faces for edge in
-                   face.edges if len(face.edges) == 3)
+            self._triangles.update(
+                    face.index for face in bm.faces if len(face.edges) == 3)
         else:
             raise ValueError("Invalid bmesh object")
 
@@ -107,10 +104,18 @@ class MeshCheckObject:
     def set_ngons(self, bm):
         if bm is not None:
             self._ngons.clear()
-            self._ngons.update(edge.index for face in bm.faces for edge in
-                   face.edges if len(face.edges) > 4)
+            self._ngons.update(
+                    face.index for face in bm.faces if len(face.edges) > 4)
         else:
             raise ValueError("Invalid bmesh object")
+
+    def get_edges_index(self, bm, check_type):
+
+        if check_type == "non_manifold":
+            return self._non_manifold
+
+        faces_index = getattr(self, f"get_{check_type}")()
+        return (edge.index for idx in faces_index for edge in bm.faces[idx].edges)
 
 
 class MeshCheckBGL:
@@ -128,12 +133,16 @@ class MeshCheckBGL:
         bpy.types.SpaceView3D.draw_handler_remove(cls._handler, 'WINDOW')
 
     @classmethod
-    def draw_edges(cls, mc_object, idx, line_width, color):
+    def draw_edges(cls, mc_object, check_type, line_width, color):
         obj = bpy.data.objects.get(mc_object.name)
         bm = mc_object.get_bm_object()
         if not bm.is_valid:
             bm = mc_object.update_bm_object()
-        coords = [obj.matrix_world @ vert.co for vert in bm.edges[idx].verts]
+
+        edges_idx = mc_object.get_edges_index(bm, check_type)
+
+        coords = [obj.matrix_world @ vert.co for idx in edges_idx for vert
+                  in bm.edges[idx].verts]
 
         bgl.glLineWidth(line_width)
         bgl.glEnable(bgl.GL_DEPTH_TEST)
@@ -152,30 +161,16 @@ class MeshCheckBGL:
             addon_prefs = bpy.context.preferences.addons[
                 __name__.split(".")[0]].preferences
 
-            if any([getattr(mesh_check, data) for data in ("non_manifold",
-                                                           "triangles",
-                                                           "ngons")]):
-                for id, mc_object in MeshCheck.objects.items():
-                    if mesh_check.non_manifold:
-                        for edge_idx in mc_object.get_non_manifold():
-                            cls.draw_edges(mc_object,
-                                           edge_idx,
-                                           addon_prefs.line_width,
-                                           addon_prefs.non_manifold_color)
+            check_types = ("non_manifold", "triangles", "ngons")
 
-                    if mesh_check.triangles:
-                        for edge_idx in mc_object.get_triangles():
-                            cls.draw_edges(mc_object,
-                                           edge_idx,
-                                           addon_prefs.line_width,
-                                           addon_prefs.triangles_color)
-
-                    if mesh_check.ngons:
-                        for edge_idx in mc_object.get_ngons():
-                            cls.draw_edges(mc_object,
-                                           edge_idx,
-                                           addon_prefs.line_width,
-                                           addon_prefs.ngons_color)
+            for check in check_types:
+                if getattr(mesh_check, check):
+                    for id, mc_object in MeshCheck.objects.items():
+                        cls.draw_edges(mc_object,
+                                       check,
+                                       addon_prefs.line_width,
+                                       getattr(addon_prefs, f"{check}_color")
+                                       )
 
 
 class MeshCheck:
