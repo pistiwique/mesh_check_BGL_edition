@@ -40,7 +40,7 @@ class MeshCheckPreferences(AddonPreferences):
 
     line_width: FloatProperty(
             name="Line Width",
-            default=2.0,
+            default=3.0,
             min=1.0, max=10.0,
             subtype="PIXEL",
             description="Edge width in pixels"
@@ -48,7 +48,7 @@ class MeshCheckPreferences(AddonPreferences):
 
     triangles_color: FloatVectorProperty(
             name="Triangles",
-            default=(1.0, 0.85, 0, 0.3),
+            default=(1.0, 0.85, 0, 0.25),
             min=0.0, max=1.0, size=4,
             subtype="COLOR",
             description="Triangles color"
@@ -56,7 +56,7 @@ class MeshCheckPreferences(AddonPreferences):
 
     ngons_color: FloatVectorProperty(
             name="Triangles",
-            default=(1.0, 0, 0, 0.3),
+            default=(1.0, 0, 0, 0.25),
             min=0.0, max=1.0, size=4,
             subtype="COLOR",
             description="Ngons color"

@@ -19,9 +19,11 @@
 import bpy
 import bmesh
 import gpu
-
 import bgl
+
 from gpu_extras.batch import batch_for_shader
+
+from mathutils.geometry import tessellate_polygon as tessellate
 
 
 class MeshCheckObject:
@@ -37,7 +39,12 @@ class MeshCheckObject:
 
         self._non_manifold = set() # storage for edges index
         self._triangles = set() # storage for faces index
+        self._triangles_vertices = []
+        self._triangles_indices = []
+
         self._ngons = set() # storage for faces index
+        self._ngons_vertices = []
+        self._ngons_indices = []
 
         self.init_object()
 
@@ -93,8 +100,20 @@ class MeshCheckObject:
     def set_triangles(self, bm):
         if bm is not None:
             self._triangles.clear()
+            self._triangles_vertices.clear()
+            self._triangles_indices.clear()
+
             self._triangles.update(
                     face.index for face in bm.faces if len(face.edges) == 3)
+            bm.faces.ensure_lookup_table()
+            self._triangles_vertices.extend(
+                    [vert.index for face_idx in self._triangles for vert in
+                    bm.faces[face_idx].verts]
+                    )
+            index = list(range(0, len(self._triangles_vertices)))
+            self._triangles_indices.extend(
+                    index[i:i+3] for i in range(0, len(self._triangles_vertices), 3)
+                    )
         else:
             raise ValueError("Invalid bmesh object")
 
@@ -104,8 +123,27 @@ class MeshCheckObject:
     def set_ngons(self, bm):
         if bm is not None:
             self._ngons.clear()
+            self._ngons_vertices.clear()
+            self._ngons_indices.clear()
             self._ngons.update(
                     face.index for face in bm.faces if len(face.edges) > 4)
+
+            bm.faces.ensure_lookup_table()
+            for face_index in self.get_ngons():
+                coords = [vert.co for vert in bm.faces[face_index].verts]
+                verts_index = [vert.index for vert in bm.faces[face_index].verts]
+                tessellated = tessellate([coords])
+                remapped_verts_index = [verts_index[idx] for tess in
+                                        tessellated for idx in tess]
+
+                self._ngons_vertices.extend(
+                        [vert_index for vert_index in remapped_verts_index]
+                        )
+            index = list(range(0, len(self._ngons_vertices)))
+            self._ngons_indices.extend(
+                    index[i:i + 3] for i in
+                    range(0, len(self._ngons_vertices), 3)
+                    )
         else:
             raise ValueError("Invalid bmesh object")
 
@@ -117,6 +155,10 @@ class MeshCheckObject:
         faces_index = getattr(self, f"get_{check_type}")()
         return (edge.index for idx in faces_index for edge in bm.faces[idx].edges)
 
+    def get_faces(self, check_type):
+        vertices = getattr(self, f"_{check_type}_vertices")
+        indices = getattr(self, f"_{check_type}_indices")
+        return vertices, indices
 
 class MeshCheckBGL:
 
@@ -132,8 +174,8 @@ class MeshCheckBGL:
     def remove_handler(cls):
         bpy.types.SpaceView3D.draw_handler_remove(cls._handler, 'WINDOW')
 
-    @classmethod
-    def draw_edges(cls, mc_object, check_type, line_width, color):
+    @staticmethod
+    def draw_edges(mc_object, check_type, line_width, color):
         obj = bpy.data.objects.get(mc_object.name)
         bm = mc_object.get_bm_object()
         if not bm.is_valid:
@@ -153,6 +195,28 @@ class MeshCheckBGL:
         shader.uniform_float("color", color)
         batch.draw(shader)
 
+    @staticmethod
+    def draw_faces(mc_object, check_type, color):
+        obj = bpy.data.objects.get(mc_object.name)
+        bm = mc_object.get_bm_object()
+        if not bm.is_valid:
+            bm = mc_object.update_bm_object()
+
+        verts_index, indices = mc_object.get_faces(check_type)
+        vertices = tuple([obj.matrix_world@bm.verts[idx].co for idx in
+                          verts_index]
+                         )
+
+        bgl.glEnable(bgl.GL_BLEND)
+        shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
+
+        shader.bind()
+        shader.uniform_float("color", color)
+        batch.draw(shader)
+        bgl.glDisable(bgl.GL_BLEND)
+
+
     @classmethod
     def draw(cls):
         C = bpy.context
@@ -166,11 +230,20 @@ class MeshCheckBGL:
             for check in check_types:
                 if getattr(mesh_check, check):
                     for id, mc_object in MeshCheck.objects.items():
-                        cls.draw_edges(mc_object,
-                                       check,
-                                       addon_prefs.line_width,
-                                       getattr(addon_prefs, f"{check}_color")
-                                       )
+                        MeshCheckBGL.draw_edges(
+                                mc_object,
+                                check,
+                                addon_prefs.line_width,
+                                getattr(addon_prefs, f"{check}_color")
+                                )
+
+                        # if check == "triangles":
+                        if check != "non_manifold":
+                            MeshCheckBGL.draw_faces(
+                                    mc_object,
+                                    check,
+                                    getattr(addon_prefs, f"{check}_color")
+                                    )
 
 
 class MeshCheck:
