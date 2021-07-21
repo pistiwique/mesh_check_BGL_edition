@@ -28,9 +28,6 @@ bl_info = {
     "wiki_url": "",
     "category": "Object"}
 
-
-debug = 0
-
 modules = (
     "preferences",
     "properties",
@@ -47,12 +44,11 @@ def register():
     import importlib
 
     for mod in modules:
-        if debug:
-            exec(f"importlib.reload({mod})")
- 
         exec(f"{mod}.register()")
 
 
 def unregister():
+
     for mod in modules:
         exec(f"{mod}.unregister()")
+
