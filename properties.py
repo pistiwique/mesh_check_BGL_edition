@@ -18,7 +18,6 @@
 
 # <pep8 compliant>
 
-
 import bpy
 
 from bpy.types import PropertyGroup
@@ -37,12 +36,11 @@ def enable_depsgraph_handler(self, context):
     else:
         MeshCheck.remove_callback()
 
+
 def mc_object_datas_updater(attr):
     def updater(self, context):
-        if context.object.mode == "EDIT":
-            if getattr(self, attr):
-                MeshCheck.update_mc_object_datas(attr)
-        return None
+        if context.object.mode == "EDIT" and getattr(self, attr):
+            MeshCheck.update_mc_object_datas(attr)
 
     return updater
 
@@ -50,37 +48,38 @@ def mc_object_datas_updater(attr):
 class MeshCheckProperties(PropertyGroup):
 
     display_mesh_check: BoolProperty(
-            name="Mesh Check",
-            default=False,
-            update=enable_depsgraph_handler
-            )
+        name="Mesh Check",
+        default=False,
+        update=enable_depsgraph_handler
+    )
 
     non_manifold: BoolProperty(
-            name="Non manifold",
-            default=False,
-            description="Draw non manifold edges",
-            update=mc_object_datas_updater("non_manifold")
-            )
+        name="Non manifold",
+        default=False,
+        description="Draw non manifold edges",
+        update=mc_object_datas_updater("non_manifold")
+    )
 
     triangles: BoolProperty(
-            name="Triangles",
-            default=False,
-            description="Draw triangles",
-            update=mc_object_datas_updater("triangles")
-            )
+        name="Triangles",
+        default=False,
+        description="Draw triangles",
+        update=mc_object_datas_updater("triangles")
+    )
 
     ngons: BoolProperty(
-            name="Ngons",
-            default=False,
-            description="Draw ngons",
-            update=mc_object_datas_updater("ngons")
-            )
+        name="Ngons",
+        default=False,
+        description="Draw ngons",
+        update=mc_object_datas_updater("ngons")
+    )
 
     def split_template(self, layout):
         row = layout.row(align=True)
         split = row.split(factor=0.2)
-        split.separator()
+        split.separator()  # créé un décalage verticale
         return split
+
     def draw_options(self, layout):
         layout.active = self.display_mesh_check and bpy.context.object.mode == "EDIT"
         split = self.split_template(layout)
@@ -92,10 +91,13 @@ class MeshCheckProperties(PropertyGroup):
 
 
 def register():
+
     bpy.utils.register_class(MeshCheckProperties)
     bpy.types.WindowManager.mesh_check_props = PointerProperty(
-            type=MeshCheckProperties)
+        type=MeshCheckProperties)
+
 
 def unregister():
+
     del bpy.types.WindowManager.mesh_check_props
     bpy.utils.unregister_class(MeshCheckProperties)
