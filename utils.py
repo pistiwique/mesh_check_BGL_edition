@@ -37,12 +37,12 @@ class MeshCheckObject:
         self._edges = 0
         self._faces = 0
 
-        self._non_manifold = set() # storage for edges index
-        self._triangles = set() # storage for faces index
-        self._triangles_vertices = []
+        self._non_manifold = set()  # storage for edges
+        self._triangles = set()  # storage for faces
+        self._triangles_vertices = []  # nested list
         self._triangles_indices = []
 
-        self._ngons = set() # storage for faces index
+        self._ngons = set()  # storage for faces
         self._ngons_vertices = []
         self._ngons_indices = []
 
@@ -50,16 +50,23 @@ class MeshCheckObject:
 
     def init_object(self):
         if bpy.context.object.mode == "EDIT":
-            bm = self.set_bm_object()
-            self.update_datas(bm)
+            mesh_check = bpy.context.window_manager.mesh_check_props
+            check_types = ("non_manifold", "triangles", "ngons")
+
+            if any(getattr(mesh_check, check) for check in check_types):
+                bm = self.set_bm_object()
+                self.update_datas(bm)
+
+    def get_object_data(self):
+        obj = bpy.data.objects.get(self.name)  # if doesn't exist no error
+        return obj.data
 
     def get_bm_object(self):
         return self._bm_object
 
     def set_bm_object(self):
-        obj = bpy.data.objects.get(self.name)
-        if obj.data.is_editmode:
-            me = obj.data
+        me = self.get_object_data()
+        if me.is_editmode:
             self._bm_object = bmesh.from_edit_mesh(me)
             return self._bm_object
 
@@ -69,96 +76,89 @@ class MeshCheckObject:
         return bm
 
     def update_datas(self, bm):
-        self._verts = len(bm.verts)
-        self._edges = len(bm.edges)
-        self._faces = len(bm.faces)
 
-        self.set_non_manifold(bm)
-        self.set_triangles(bm)
-        self.set_ngons(bm)
+        me = self.get_object_data()
+        bmesh.update_edit_mesh(me)
 
+        mesh_check = bpy.context.window_manager.mesh_check_props
+        check_types = ("non_manifold", "triangles", "ngons")
 
-    def clear_datas(self):
-        self._verts = self._edges = self._faces = 0
+        for check in check_types:
+            if getattr(mesh_check, check):  # to not exe all each time
+                exec(f"self.set_{check}(bm)")
 
     def is_updated_datas(self, bm):
         datas = ("verts", "edges", "faces")
-        return any([getattr(self, f"_{data}") != len(getattr(bm, data))
-                    for data in datas])
+        return any(
+            getattr(self, f"_{data}") != len(getattr(bm, data)) for data in datas
+        )
 
     def set_non_manifold(self, bm):
-        if bm is not None:
-            self._non_manifold.clear()
-            self._non_manifold.update(
-                    edge.index for edge in bm.edges if not edge.is_manifold)
-        else:
-            raise ValueError("Invalid bmesh object")
+        if bm is None or not bm.is_valid:
+            bm = self.update_bm_object()
+
+        self._non_manifold = [
+            edge for edge in bm.edges if not edge.is_manifold]
 
     def get_triangles(self):
         return self._triangles
 
     def set_triangles(self, bm):
-        if bm is not None:
-            self._triangles.clear()
-            self._triangles_vertices.clear()
-            self._triangles_indices.clear()
+        if bm is None or not bm.is_valid:
+            bm = self.update_bm_object()
 
-            self._triangles.update(
-                    face.index for face in bm.faces if len(face.edges) == 3)
-            bm.faces.ensure_lookup_table()
-            self._triangles_vertices.extend(
-                    [vert.index for face_idx in self._triangles for vert in
-                    bm.faces[face_idx].verts]
-                    )
-            index = list(range(0, len(self._triangles_vertices)))
-            self._triangles_indices.extend(
-                    index[i:i+3] for i in range(0, len(self._triangles_vertices), 3)
-                    )
-        else:
-            raise ValueError("Invalid bmesh object")
+        self._triangles = [face for face in bm.faces if len(face.edges) == 3]
+
+        bm.faces.ensure_lookup_table()
+
+        self._triangles_vertices = [
+            vert for f in bm.faces if len(f.edges) == 3 for vert in f.verts]
+
+        index = list(range(len(self._triangles_vertices)))
+        self._triangles_indices = [
+            index[i:i+3] for i in range(0, len(self._triangles_vertices), 3)]  # trés habile
 
     def get_ngons(self):
         return self._ngons
 
     def set_ngons(self, bm):
-        if bm is not None:
-            self._ngons.clear()
-            self._ngons_vertices.clear()
-            self._ngons_indices.clear()
-            self._ngons.update(
-                    face.index for face in bm.faces if len(face.edges) > 4)
+        self._ngons.clear()
+        self._ngons_vertices.clear()
+        self._ngons_indices.clear()
 
-            bm.faces.ensure_lookup_table()
-            for face_index in self.get_ngons():
-                coords = [vert.co for vert in bm.faces[face_index].verts]
-                verts_index = [vert.index for vert in bm.faces[face_index].verts]
-                tessellated = tessellate([coords])
-                remapped_verts_index = [verts_index[idx] for tess in
-                                        tessellated for idx in tess]
+        if bm is None or not bm.is_valid:
+            bm = self.update_bm_object()
 
-                self._ngons_vertices.extend(
-                        [vert_index for vert_index in remapped_verts_index]
-                        )
-            index = list(range(0, len(self._ngons_vertices)))
-            self._ngons_indices.extend(
-                    index[i:i + 3] for i in
-                    range(0, len(self._ngons_vertices), 3)
-                    )
-        else:
-            raise ValueError("Invalid bmesh object")
+        self._ngons = [face for face in bm.faces if len(face.edges) > 4]
 
-    def get_edges_index(self, bm, check_type):
+        bm.faces.ensure_lookup_table()
+        for face in self.get_ngons():
+            coords = [vert.co for vert in face.verts]
+            verts = [vert for vert in face.verts]
+            tessellated = tessellate([coords])
+            remapped_verts = [verts[idx] for tris in
+                              tessellated for idx in tris]
+            self._ngons_vertices.extend(remapped_verts)
+
+        index = list(range(len(self._ngons_vertices)))
+        self._ngons_indices.extend(
+            index[i:i + 3] for i in
+            range(0, len(self._ngons_vertices), 3)
+        )
+
+    def get_edges(self, bm, check_type):
 
         if check_type == "non_manifold":
             return self._non_manifold
 
-        faces_index = getattr(self, f"get_{check_type}")()
-        return (edge.index for idx in faces_index for edge in bm.faces[idx].edges)
+        faces = getattr(self, f"get_{check_type}")()
+        return (edge for face in faces for edge in face.edges)
 
     def get_faces(self, check_type):
-        vertices = getattr(self, f"_{check_type}_vertices")
+        verts = getattr(self, f"_{check_type}_vertices")
         indices = getattr(self, f"_{check_type}_indices")
-        return vertices, indices
+        return verts, indices
+
 
 class MeshCheckBGL:
 
@@ -167,24 +167,24 @@ class MeshCheckBGL:
     @classmethod
     def setup_handler(cls):
         cls._handler = bpy.types.SpaceView3D.draw_handler_add(
-                cls.draw, (), 'WINDOW', 'POST_VIEW'
-                )
+            cls.draw, (bpy.context,), 'WINDOW', 'POST_VIEW'
+        )
 
     @classmethod
     def remove_handler(cls):
         bpy.types.SpaceView3D.draw_handler_remove(cls._handler, 'WINDOW')
 
     @staticmethod
-    def draw_edges(mc_object, check_type, line_width, color):
-        obj = bpy.data.objects.get(mc_object.name)
+    def draw_edges(id, mc_object, check_type, line_width, color):
+        obj = bpy.data.objects.get(id)
         bm = mc_object.get_bm_object()
-        if not bm.is_valid:
+        if bm is None or not bm.is_valid:
             bm = mc_object.update_bm_object()
 
-        edges_idx = mc_object.get_edges_index(bm, check_type)
+        edges = mc_object.get_edges(bm, check_type)
 
-        coords = [obj.matrix_world @ vert.co for idx in edges_idx for vert
-                  in bm.edges[idx].verts]
+        coords = [obj.matrix_world @ vert.co for edge in edges for vert
+                  in edge.verts]
 
         bgl.glLineWidth(line_width)
         bgl.glEnable(bgl.GL_DEPTH_TEST)
@@ -196,54 +196,55 @@ class MeshCheckBGL:
         batch.draw(shader)
 
     @staticmethod
-    def draw_faces(mc_object, check_type, color):
-        obj = bpy.data.objects.get(mc_object.name)
+    def draw_faces(id, mc_object, check_type, color):
+        obj = bpy.data.objects.get(id)
         bm = mc_object.get_bm_object()
-        if not bm.is_valid:
+        if bm is None or not bm.is_valid:
             bm = mc_object.update_bm_object()
 
-        verts_index, indices = mc_object.get_faces(check_type)
-        vertices = tuple([obj.matrix_world@bm.verts[idx].co for idx in
-                          verts_index]
-                         )
+        verts, indices = mc_object.get_faces(check_type)
+        vertices = tuple(obj.matrix_world @ vert.co for vert in
+                         verts)
 
         bgl.glEnable(bgl.GL_BLEND)
         shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
+        batch = batch_for_shader(
+            shader, 'TRIS', {"pos": vertices}, indices=indices)
 
         shader.bind()
         shader.uniform_float("color", color)
         batch.draw(shader)
         bgl.glDisable(bgl.GL_BLEND)
 
-
     @classmethod
-    def draw(cls):
-        C = bpy.context
-        if C.object is not None and C.object.data.is_editmode:
-            mesh_check = bpy.context.window_manager.mesh_check_props
-            addon_prefs = bpy.context.preferences.addons[
-                __name__.split(".")[0]].preferences
+    def draw(cls, context):
+        if context.object is None or not context.object.data.is_editmode:
+            return
+        mesh_check = context.window_manager.mesh_check_props
 
-            check_types = ("non_manifold", "triangles", "ngons")
+        addon_prefs = context.preferences.addons[
+            __name__.split(".")[0]].preferences
 
-            for check in check_types:
-                if getattr(mesh_check, check):
-                    for id, mc_object in MeshCheck.objects.items():
-                        MeshCheckBGL.draw_edges(
-                                mc_object,
-                                check,
-                                addon_prefs.line_width,
-                                getattr(addon_prefs, f"{check}_color")
-                                )
+        check_types = ("non_manifold", "triangles", "ngons")
 
-                        # if check == "triangles":
-                        if check != "non_manifold":
-                            MeshCheckBGL.draw_faces(
-                                    mc_object,
-                                    check,
-                                    getattr(addon_prefs, f"{check}_color")
-                                    )
+        for check in check_types:
+            if getattr(mesh_check, check):
+                for id, mc_object in MeshCheck.objects.items():
+                    MeshCheckBGL.draw_edges(
+                        id,
+                        mc_object,
+                        check,
+                        addon_prefs.line_width,
+                        getattr(addon_prefs, f"{check}_color")
+                    )
+
+                    if check != "non_manifold":
+                        MeshCheckBGL.draw_faces(
+                            id,
+                            mc_object,
+                            check,
+                            getattr(addon_prefs, f"{check}_color")
+                        )
 
 
 class MeshCheck:
@@ -255,19 +256,17 @@ class MeshCheck:
     def poll():
         mesh_check = bpy.context.window_manager.mesh_check_props
         props = ("non_manifold", "triangles", "ngons")
-        return mesh_check.display_mesh_check and \
-               any([getattr(mesh_check, prop) for prop in props])
+        return mesh_check.display_mesh_check and any(
+            getattr(mesh_check, prop) for prop in props
+        )
 
     @classmethod
     def reset_mesh_check(cls):
-        cls.set_mode("")
+        cls._mode = ""
+
         for mc_object in cls.objects.values():
             del mc_object
         cls.objects.clear()
-
-    @classmethod
-    def mode(cls):
-        return cls._mode
 
     @classmethod
     def set_mode(cls, states):
@@ -290,7 +289,7 @@ class MeshCheck:
     @classmethod
     def add_callback(cls):
         if cls.callback not in bpy.app.handlers.depsgraph_update_post:
-            cls.add_mesh_check_object()
+            cls.add_mesh_check_object()  # adding MeshCheckObject instances to "objects"
             bpy.app.handlers.depsgraph_update_post.append(cls.callback)
             MeshCheckBGL.setup_handler()
 
@@ -304,30 +303,32 @@ class MeshCheck:
     @classmethod
     def update_mc_object_datas(cls, datas):
         for mc_object in cls.objects.values():
-            getattr(mc_object, f"set_{datas}")(mc_object.get_bm_object())
+            getattr(mc_object, f"set_{datas}")(
+                mc_object.get_bm_object())  # method(bm)
 
     @staticmethod
     def callback(scene):
-        """
+        """        
         Before doing anything, we check that the mode haven't change.
         If it's the case and we are in EDIT mode, we check the  validity
         of registered MeshCheckObject instances. For each instance,
         we update its bmesh representation.
         """
-        if bpy.context.object is not None:
-            object_mode = bpy.context.object.mode
-            if object_mode != MeshCheck.mode():
-                MeshCheck.set_mode(object_mode)
-                if object_mode == "EDIT":
-                    MeshCheck.reset_mc_objects()
+        if bpy.context.object is None:
+            return
+        object_mode = bpy.context.object.mode
+        if object_mode != MeshCheck._mode:
+            MeshCheck.set_mode(object_mode)
+            if object_mode == "EDIT":  # situation where objs could have been added/rmv
+                MeshCheck.reset_mc_objects()
 
-            if object_mode == "EDIT" and MeshCheck.poll():
-                depsgraph = bpy.context.evaluated_depsgraph_get()
-                for id, object in MeshCheck.objects.items():
-                    bm = object.get_bm_object()
-                    if bm is None or not bm.is_valid:
-                        bm = object.set_bm_object()
-                    for update in depsgraph.updates:
-                        if update.id.original == bpy.data.objects[id] and \
-                                object.is_updated_datas(bm):
-                            object.update_datas(bm)
+        if object_mode == "EDIT" and MeshCheck.poll():
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            for id, object in MeshCheck.objects.items():  # id=obj.name
+                bm = object.get_bm_object()  # instance method
+                if bm is None or not bm.is_valid:
+                    bm = object.set_bm_object()
+                for update in depsgraph.updates:
+                    if update.id.original == bpy.data.objects[id] and \
+                            object.is_updated_datas(bm):
+                        object.update_datas(bm)

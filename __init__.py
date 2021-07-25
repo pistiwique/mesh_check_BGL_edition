@@ -21,39 +21,34 @@
 bl_info = {
     "name": "Mesh Check BGL edition",
     "description": "",
-    "author": "Legigan Jeremy AKA Pistiwique",
-    "version": (0, 0, 1),
-    "blender": (2, 80, 0),
+    "author": "Legigan Jeremy AKA Pistiwique/1COD",
+    "version": (0, 1, 1),
+    "blender": (2, 93, 0),
     "location": "View3D",
-    "warning": "This addon is still in development.",
     "wiki_url": "",
     "category": "Object"}
 
-if "bpy" in locals():
-    import importlib
+modules = (
+    "preferences",
+    "properties",
+    "ui"
+)
 
-    reloadable_modules = [
-        "preferences",
-        "properties",
-        "ui"
-        ]
 
-    for module in reloadable_modules:
-        if module in locals():
-            importlib.reload(locals()[module])
-
-from . import (preferences,
-               properties,
-               ui
-               )
+for mod in modules:
+    exec(f"from . import {mod}")
 
 
 def register():
-    preferences.register()
-    properties.register()
-    ui.register()
+
+    import importlib
+
+    for mod in modules:
+        exec(f"{mod}.register()")
+
 
 def unregister():
-    ui.unregister()
-    properties.unregister()
-    preferences.unregister()
+
+    for mod in modules:
+        exec(f"{mod}.unregister()")
+
